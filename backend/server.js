@@ -4,18 +4,12 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const reportRoutes = require('./routes/reports');
-const path = require("path");
 
 dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors({
-  origin: ["https://medicalanalysis.netlify.app"],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
@@ -32,12 +26,5 @@ app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportRoutes);
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-// Serve frontend build
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
-});
