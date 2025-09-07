@@ -18,15 +18,15 @@ api.interceptors.request.use((config) => {
 
 // -------- Auth --------
 export function signup(name, email, password) {
-  return api.post("/auth/signup", { name, email, password });
+  return api.post("/signup", { name, email, password });
 }
 
 export function signin(email, password) {
-  return api.post("/auth/signin", { email, password });
+  return api.post("/signin", { email, password });
 }
 
 export function me() {
-  return api.get("/auth/me");
+  return api.get("/me");
 }
 
 // -------- Reports --------
