@@ -88,6 +88,31 @@ VITE_API_BASE_URL=http://localhost:5000/api
 ```bash
 npm run dev
 ```
-## 📸 Glimpses of the Project
-### 🔐 Login / Signup
+## 📸 Project Glimpses  
+
+## 🔑 Sign In
+![Sign In](./sign%20In.png)
+
+## 📌 Dashboard
+![Dashboard](./Dashboard.png)
+
+## 📌 Dashboard (Alternative View)
+![Dashboard 1](./Dashboard%201.png)
+
+## 📜 Report History
+![Report History](./Report%20History.png)
+
+## 📑 Reports
+![Reports](./Reports.png)
+
+
+---
+
+## 🧑‍💻 Author  
+
+**Shreya Porwal**  
+
+- GitHub: [@shreyaporwal2003](https://github.com/shreyaporwal2003)  
+- LinkedIn: [shreya_porwal](https://www.linkedin.com/in/shreyaporwal167/)  
+- Email: shreyaporwal167@gmail.com 
 
