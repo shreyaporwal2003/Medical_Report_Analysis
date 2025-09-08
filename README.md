@@ -101,6 +101,11 @@ npm run dev
 ## 📌 Dashboard (Alternative View)
 ![Dashboard 1](./screenshots/Dashboard%201.png)
 
+## Upload Report
+![Upload](./screenshots/upload.png)
+![Upload](./screenshots/uploading.png)
+
+
 ## 📜 Report History
 ![Report History](./screenshots/Report%20History.png)
 
