@@ -90,20 +90,23 @@ npm run dev
 ```
 ## 📸 Project Glimpses  
 
+# 📊 Medical Report Analyzer Dashboard
+
 ## 🔑 Sign In
-![Sign In](./sign%20In.png)
+![Sign In](./screenshots/sign%20In.png)
 
 ## 📌 Dashboard
-![Dashboard](./Dashboard.png)
+![Dashboard](./screenshots/Dashboard.png)
 
 ## 📌 Dashboard (Alternative View)
-![Dashboard 1](./Dashboard%201.png)
+![Dashboard 1](./screenshots/Dashboard%201.png)
 
 ## 📜 Report History
-![Report History](./Report%20History.png)
+![Report History](./screenshots/Report%20History.png)
 
 ## 📑 Reports
-![Reports](./Reports.png)
+![Reports](./screenshots/Reports.png)
+
 
 
 ---
