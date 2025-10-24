@@ -90,7 +90,7 @@ npm run dev
 ```
 ## 📸 Project Glimpses  
 
-# 📊 Medical Report Analyzer Dashboard
+
 
 ## 🔑 Sign In
 ![Sign In](./screenshots/sign%20In.png)
