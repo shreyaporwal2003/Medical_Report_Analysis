@@ -1,30 +1,37 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const authRoutes = require('./routes/auth');
-const reportRoutes = require('./routes/reports');
+const express = require("express")
+const mongoose = require("mongoose")
+const dotenv = require("dotenv")
+const cors = require("cors")
 
-dotenv.config();
-const app = express();
+dotenv.config()
+const app = express()
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+// CORS
+app.use(
+  cors({
+    origin: "http://localhost:5173", // Vite frontend
+    credentials: true,
+  })
+)
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+app.use(express.json())
+app.use("/uploads", express.static("uploads"))
+
+// MongoDB
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB error:", err))
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/reports', reportRoutes);
+app.use("/api/auth", require("./routes/auth"))
+app.use("/api/reports", require("./routes/reports"))
 
-// Start server
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("Global Error:", err)
+  res.status(500).json({ error: err.message })
+})
+
+const PORT = process.env.PORT || 5001
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`))

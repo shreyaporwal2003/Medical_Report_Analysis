@@ -4,255 +4,276 @@ const Tesseract = require("tesseract.js");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
-const mammoth = require("mammoth"); // for Word docs
+const mammoth = require("mammoth");
 const fetch = require("node-fetch");
 const Report = require("../models/Report");
 const Metric = require("../models/Metric");
 
 const router = express.Router();
 
-// ---------------- Multer setup ----------------
+
+// ================= ENSURE UPLOADS FOLDER EXISTS =================
+if (!fs.existsSync("./uploads")) {
+  fs.mkdirSync("./uploads");
+}
+
+
+// ================= MULTER =================
 const storage = multer.diskStorage({
   destination: "./uploads/",
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
 });
 
 const upload = multer({
   storage,
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/jpg",
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-    ];
-    if (!allowedTypes.includes(file.mimetype)) {
-      return cb(
-        new Error("Only image, PDF, or Word files are allowed!"),
-        false
-      );
-    }
-    cb(null, true);
-  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-// ---------------- JWT middleware ----------------
+
+// ================= AUTH =================
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  if (!token) return res.status(401).json({ error: "No token" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.userId;
     next();
-  } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
   }
 };
 
-// ---------------- Upload & Process Report ----------------
+
+// ================= UPLOAD ROUTE =================
 router.post(
   "/upload",
   authenticate,
   upload.single("report"),
   async (req, res) => {
     try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
       let extractedText = "";
 
-      // -------- Extract text from file --------
+      // ===== TEXT EXTRACTION =====
       if (req.file.mimetype === "application/pdf") {
-        const dataBuffer = fs.readFileSync(req.file.path);
-        const pdfData = await pdfParse(dataBuffer);
+        const buffer = fs.readFileSync(req.file.path);
+        const pdfData = await pdfParse(buffer);
         extractedText = pdfData.text;
 
-        // fallback OCR if PDF text empty
         if (!extractedText.trim()) {
-          const {
-            data: { text },
-          } = await Tesseract.recognize(req.file.path, "eng");
+          const { data: { text } } =
+            await Tesseract.recognize(req.file.path, "eng");
           extractedText = text;
         }
-      } else if (
+      }
+      else if (
         req.file.mimetype ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       ) {
-        // Word document
-        const dataBuffer = fs.readFileSync(req.file.path);
-        const result = await mammoth.extractRawText({ buffer: dataBuffer });
+        const buffer = fs.readFileSync(req.file.path);
+        const result = await mammoth.extractRawText({ buffer });
         extractedText = result.value;
-      } else {
-        // Image file
-        const {
-          data: { text },
-        } = await Tesseract.recognize(req.file.path, "eng");
+      }
+      else {
+        const { data: { text } } =
+          await Tesseract.recognize(req.file.path, "eng");
         extractedText = text;
       }
 
-      // -------- Call Gemini --------
+      if (!extractedText.trim()) {
+        return res.status(400).json({ error: "Text extraction failed" });
+      }
+
+      console.log("Extracted length:", extractedText.length);
+
+      const limitedText = extractedText.slice(0, 12000);
+
       const prompt = `
-Extract structured medical information as JSON:
-- reportDetails: hospital, MRN, dates, doctor
-- patientDetails: name, age, gender
-- tests: name, method (Ultrasound/Lab/etc.), value, unit, referenceRange, status (low/normal/high/abnormal)
-- summary: plain-English summary of the report
+Return ONLY valid JSON.
+No markdown.
+No explanation.
 
-Make sure all numeric values are numbers, units are strings, and if not available use null.
-Only return valid JSON.
+{
+  "reportDetails": { "hospital": null, "MRN": null, "dates": null, "doctor": null },
+  "patientDetails": { "name": null, "age": null, "gender": null },
+  "tests": [
+    { "testName": null, "method": null, "value": null, "unit": null, "referenceRange": null, "status": null }
+  ],
+  "summary": "plain English summary"
+}
 
-Report text:
-${extractedText}
+Report:
+${limitedText}
 `;
 
       const response = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": process.env.GEMINI_API_KEY,
           },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
         }
       );
 
       const data = await response.json();
 
-      if (!data.candidates || !data.candidates.length) {
-        return res.status(500).json({ error: "No response from AI" });
+      if (data.error) {
+        return res.status(500).json({
+          error: data.error.message || "Gemini API error",
+        });
+      }
+
+      if (!data.candidates?.length) {
+        return res.status(500).json({
+          error: "Gemini returned no candidates",
+        });
       }
 
       const rawText = data.candidates[0].content.parts
         .map((p) => p.text)
         .join("\n");
 
-      // -------- Parse JSON from AI --------
+      const cleanedText = rawText
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
       let parsedData;
+
       try {
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        parsedData = JSON.parse(jsonMatch[0]);
-
-        // Normalize tests array safely
-        parsedData.tests = (parsedData.tests || []).map((t) => {
-          let value = null;
-          if (t.value !== undefined && t.value !== null && !isNaN(parseFloat(t.value))) {
-            value = parseFloat(t.value);
-          }
-
-          return {
-            testName: t.testName || t.name || "Unknown",
-            method: t.method || null,
-            value, // null if invalid
-            unit: t.unit || "-",
-            referenceRange: t.referenceRange || null,
-            status: (t.status || "normal").toLowerCase(),
-          };
-        });
-
-        // Ensure a summary exists
-        if (!parsedData.summary) {
-          parsedData.summary = "No summary provided by AI.";
-        }
-      } catch (e) {
+        parsedData = JSON.parse(cleanedText);
+      } catch {
         return res.status(500).json({
           error: "AI returned invalid JSON",
-          rawText,
         });
       }
 
-      // -------- Save report --------
-      const report = new Report({
+      // ===== NORMALIZE TESTS =====
+      parsedData.tests = (parsedData.tests || []).map((t) => ({
+        testName: t.testName || "Unknown",
+        method: t.method || null,
+        value: !isNaN(parseFloat(t.value)) ? parseFloat(t.value) : null,
+        unit: t.unit || "-",
+        referenceRange: t.referenceRange || null,
+        status: (t.status || "normal").toLowerCase(),
+      }));
+
+      // ===== SAVE REPORT =====
+      const report = await Report.create({
         userId: req.userId,
         filePath: req.file.path,
         extractedText,
         parsedData,
-        summary: parsedData.summary,
+        summary: parsedData.summary || "No summary",
       });
-      await report.save();
 
-      // -------- Save metrics (skip invalid values) --------
+      // ===== SAVE METRICS =====
       for (const test of parsedData.tests) {
-        if (test.value !== null && !isNaN(test.value)) {
-          await new Metric({
+        if (test.value !== null) {
+          await Metric.create({
             userId: req.userId,
             metric: test.testName,
             value: test.value,
             unit: test.unit,
             status: test.status,
             timestamp: new Date(),
-          }).save();
+          });
         }
       }
 
       res.json({ report, parsedData });
+
     } catch (err) {
-      console.error(err);
+      console.error("Processing error:", err);
       res.status(500).json({ error: "Processing error" });
     }
   }
 );
 
-// ---------------- Get all reports ----------------
+
+// ================= GET ALL REPORTS =================
 router.get("/", authenticate, async (req, res) => {
   try {
-    const reports = await Report.find({ userId: req.userId }).sort({
-      createdAt: -1,
-    });
+    const reports = await Report.find({ userId: req.userId })
+      .sort({ createdAt: -1 });
+
     res.json({ reports });
   } catch (err) {
-    console.error(err);
+    console.error("Fetch reports error:", err);
     res.status(500).json({ error: "Failed to fetch reports" });
   }
 });
 
-// ---------------- Dashboard summary (must be ABOVE /:id) ----------------
+
+// ================= SUMMARY ROUTE =================
 router.get("/summary", authenticate, async (req, res) => {
   try {
-    const metrics = await Metric.find({ userId: req.userId }).sort({
-      timestamp: 1,
-    });
+    const metrics = await Metric.find({ userId: req.userId })
+      .sort({ timestamp: 1 });
 
-    // Count statuses
     const counts = { normal: 0, high: 0, low: 0 };
-    metrics.forEach((m) => {
-      if (counts[m.status] !== undefined) counts[m.status]++;
-    });
-
-    // Group trends by metric
     const trendMap = {};
-    metrics.forEach((m) => {
-      const key = m.metric;
-      if (!trendMap[key]) trendMap[key] = [];
-      trendMap[key].push({
+
+    for (const m of metrics) {
+      if (counts[m.status] !== undefined) {
+        counts[m.status]++;
+      }
+
+      if (!trendMap[m.metric]) {
+        trendMap[m.metric] = [];
+      }
+
+      trendMap[m.metric].push({
         label: new Date(m.timestamp).toLocaleDateString(),
         value: m.value,
       });
-    });
+    }
 
-    const charts = Object.entries(trendMap)
-      .slice(0, 3)
-      .map(([name, data]) => ({ name, data }));
+    // 🔥 NO LIMIT — SHOW ALL CHARTS
+    const charts = Object.entries(trendMap).map(([name, data]) => ({
+      name,
+      data,
+    }));
 
     res.json({ counts, charts });
+
   } catch (err) {
-    console.error(err);
+    console.error("Summary error:", err);
     res.status(500).json({ error: "Failed to generate summary" });
   }
 });
 
-// ---------------- Get single report ----------------
+
+// ================= SINGLE REPORT (ALWAYS LAST) =================
 router.get("/:id", authenticate, async (req, res) => {
   try {
     const report = await Report.findOne({
       _id: req.params.id,
       userId: req.userId,
     });
-    if (!report) return res.status(404).json({ error: "Report not found" });
+
+    if (!report) {
+      return res.status(404).json({ error: "Report not found" });
+    }
+
     res.json({ report });
+
   } catch (err) {
-    console.error(err);
+    console.error("Fetch single report error:", err);
     res.status(500).json({ error: "Failed to fetch report" });
   }
 });
+
 
 module.exports = router;
